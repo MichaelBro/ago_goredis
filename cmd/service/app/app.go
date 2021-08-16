@@ -2,10 +2,14 @@ package app
 
 import (
 	"ago_goredis/cmd/service/app/dto"
+	cacheMiddleware "ago_goredis/cmd/service/app/middlewares/cache"
 	"ago_goredis/pkg/cache"
 	"ago_goredis/pkg/news"
+	"context"
 	"encoding/json"
+	"errors"
 	"github.com/go-chi/chi"
+	"github.com/gomodule/redigo/redis"
 	"log"
 	"net/http"
 )
@@ -21,7 +25,30 @@ func NewServer(newsSvc *news.Service, router chi.Router, cacheSvc *cache.Service
 }
 
 func (s *Server) Init() error {
-	s.router.Get("/api/news/latest", s.latestNews)
+
+	cacheMd := cacheMiddleware.Cache(
+		func(ctx context.Context, path string) ([]byte, error) {
+			value, err := s.cacheSvc.Get(ctx, path)
+			if err != nil && errors.Is(err, redis.ErrNil) {
+				return nil, cacheMiddleware.ErrNotInCache
+			}
+			return value, err
+		},
+
+		func(ctx context.Context, path string, data []byte) error {
+			return s.cacheSvc.Set(ctx, path, data)
+		},
+
+		func(writer http.ResponseWriter, data []byte) error {
+			writer.Header().Set("Content-Type", "application/json")
+			_, err := writer.Write(data)
+			if err != nil {
+				log.Println(err)
+			}
+			return err
+		})
+
+	s.router.With(cacheMd).Get("/api/news/latest", s.latestNews)
 	s.router.Post("/api/news", s.createNews)
 
 	return nil
@@ -60,6 +87,12 @@ func (s *Server) createNews(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	writer.WriteHeader(http.StatusCreated)
+
+	go func() {
+		if err = s.cacheSvc.DeleteAllCache(context.Background()); err != nil {
+			log.Println(err)
+		}
+	}()
 }
 
 func writeJson(w http.ResponseWriter, data interface{}, code int) {
