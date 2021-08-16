@@ -2,9 +2,11 @@ package main
 
 import (
 	"ago_goredis/cmd/service/app"
+	"ago_goredis/pkg/cache"
 	"ago_goredis/pkg/news"
 	"context"
 	"github.com/go-chi/chi"
+	"github.com/gomodule/redigo/redis"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"log"
 	"net"
@@ -13,9 +15,10 @@ import (
 )
 
 const (
-	defaultPort = "9999"
-	defaultHost = "0.0.0.0"
-	defaultDSN  = "postgres://app:pass@localhost:5432/db"
+	defaultPort     = "9999"
+	defaultHost     = "0.0.0.0"
+	defaultDbDSN    = "postgres://app:pass@localhost:5432/db"
+	defaultCacheDSN = "redis://localhost:6379/0"
 )
 
 func main() {
@@ -29,29 +32,51 @@ func main() {
 		host = defaultHost
 	}
 
-	dsn, ok := os.LookupEnv("APP_DSN")
+	dbDSN, ok := os.LookupEnv("APP_DSN")
 	if !ok {
-		dsn = defaultDSN
+		dbDSN = defaultDbDSN
 	}
 
-	if err := execute(net.JoinHostPort(host, port), dsn); err != nil {
+	cacheDSN, ok := os.LookupEnv("APP_CACHE_DSN")
+	if !ok {
+		cacheDSN = defaultCacheDSN
+	}
+
+	if err := execute(net.JoinHostPort(host, port), dbDSN, cacheDSN); err != nil {
 		os.Exit(1)
 	}
 }
 
-func execute(addr string, dsn string) error {
+func execute(addr string, dbDSN string, cacheDSN string) error {
 	ctx := context.Background()
-	pool, err := pgxpool.Connect(ctx, dsn)
+	pool, err := pgxpool.Connect(ctx, dbDSN)
 	if err != nil {
-		log.Print(err)
 		return err
 	}
 	defer pool.Close()
 
-	offersSvc := news.NewService(pool)
-	mux := chi.NewRouter()
+	redisPool := &redis.Pool{
+		DialContext: func(ctx context.Context) (redis.Conn, error) {
+			return redis.DialURL(cacheDSN)
+		},
+	}
 
-	application := app.NewServer(offersSvc, mux)
+	defer func() {
+		if cerr := redisPool.Close(); cerr != nil {
+			if err == nil {
+				err = cerr
+				return
+			}
+			log.Print(cerr)
+		}
+	}()
+
+	newsSvc := news.NewService(pool)
+	router := chi.NewRouter()
+	cacheSvc := cache.NewService(redisPool)
+
+	application := app.NewServer(newsSvc, router, cacheSvc)
+
 	err = application.Init()
 	if err != nil {
 		log.Print(err)

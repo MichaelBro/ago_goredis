@@ -2,6 +2,7 @@ package app
 
 import (
 	"ago_goredis/cmd/service/app/dto"
+	"ago_goredis/pkg/cache"
 	"ago_goredis/pkg/news"
 	"encoding/json"
 	"github.com/go-chi/chi"
@@ -10,12 +11,13 @@ import (
 )
 
 type Server struct {
-	newsSvc *news.Service
-	router  chi.Router
+	newsSvc  *news.Service
+	cacheSvc *cache.Service
+	router   chi.Router
 }
 
-func NewServer(newsSvc *news.Service, router chi.Router) *Server {
-	return &Server{newsSvc: newsSvc, router: router}
+func NewServer(newsSvc *news.Service, router chi.Router, cacheSvc *cache.Service) *Server {
+	return &Server{newsSvc: newsSvc, router: router, cacheSvc: cacheSvc}
 }
 
 func (s *Server) Init() error {
