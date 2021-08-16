@@ -1,0 +1,26 @@
+### Получение последних 5 новостей
+
+GET http://localhost:9999/api/news/latest
+
+> {%
+client.test("Request executed successfully", function() {
+  client.assert(response.status === 200, "Response status is not 200");
+  client.assert(response.contentType.mimeType === "application/json", "Expected 'application/json' but received '" + response.contentType.mimeType + "'");
+});
+%}
+
+### Создание новости
+
+POST http://localhost:9999/api/news
+Content-Type: application/json
+
+{
+  "title": "Lorem",
+  "text": "Ipsum"
+}
+
+> {%
+client.test("Request executed successfully", function() {
+  client.assert(response.status === 201, "Response status is not 201");
+});
+%}
